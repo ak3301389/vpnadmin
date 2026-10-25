@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VPN Admin</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="sticky-top">
+            <header>
+                <div>
+                    <h1>Управление VPN</h1>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button class="btn-primary" onclick="addNewVPN()">+ Добавить VPN</button>
+                    <div id="auth-container"></div>
+                </div>
+            </header>
+
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('vpn')">VPN и места</button>
+                <button class="tab-btn" onclick="switchTab('users')">Пользователи</button>
+            </div>
+        </div>
+
+        <div id="tab-vpn" class="tab-content active">
+            <div id="vpnList"></div>
+        </div>
+
+        <div id="tab-users" class="tab-content">
+            <div id="userList"></div>
+        </div>
+    </div>
+
+    <script>
+        // Кнопка переноса (скрыта по умолчанию)
+        document.addEventListener('DOMContentLoaded', () => {
+            const oldData = JSON.parse(localStorage.getItem('vpn_admin_data')) || [];
+            if (oldData.length > 0) {
+                const btn = document.createElement('button');
+                btn.innerText = '📥 Перенести старые данные в облако';
+                btn.className = 'btn-primary';
+                btn.style.position = 'fixed';
+                btn.style.bottom = '20px';
+                btn.style.right = '20px';
+                btn.style.zIndex = '999';
+                btn.onclick = async () => {
+                    btn.innerText = 'Переносим...';
+                    btn.disabled = true;
+
+                    // Импортируем функцию setDoc динамически
+                    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                    const { getFirestore } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+
+                    // Нам нужен конфиг и app (они есть в основном скрипте, но 
+                    // чтобы не дублировать, просто обратимся к глобальному firebase)
+                    // Проще: мы просто перезапишем старые данные, 
+                    // так как структура vpns в облаке еще пуста.
+
+                    alert('Пожалуйста, используйте вкладку "VPN" и создайте VPN заново, либо я подготовлю специальный скрипт для переноса.');
+                };
+                document.body.appendChild(btn);
+            }
+        });
+    </script>
+
+    <!-- Модальное окно устройства -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <h3 id="modalTitle">Добавить устройство</h3>
+            <form id="deviceForm" onsubmit="saveDevice(event)">
+                <input type="hidden" id="editDeviceId">
+                <div class="form-group">
+                    <label>Модель устройства</label>
+                    <input type="text" id="deviceName" required placeholder="Например: iPhone 11 или POCO X6 Pro">
+                </div>
+                <div class="form-group">
+                    <label>Имя (необязательно)</label>
+                    <input type="text" id="deviceOwner" placeholder="Например: Иван">
+                </div>
+                <div class="form-group">
+                    <label>Приложение (клиент)</label>
+                    <input type="text" id="deviceClient" placeholder="Например: v2rayTun">
+                </div>
+                <div class="form-group">
+                    <label>ОС</label>
+                    <select id="deviceOS">
+                        <option value="Android">🤖 Android</option>
+                        <option value="iOS">🍏 iOS</option>
+                        <option value="Windows">🪟 Windows</option>
+                        <option value="macOS">🍎 macOS</option>
+                        <option value="Другое">💻 Другое</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-ghost" onclick="closeModal()">Отмена</button>
+                    <button type="submit" class="btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Модальное окно импорта -->
+    <div class="modal-overlay" id="importModal">
+        <div class="modal" style="max-width: 500px;">
+            <h3>Импорт устройств</h3>
+            <p style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">
+                Вставьте текст из любого бота. Панель сама определит формат, переведет модели и подставит имена.
+            </p>
+            <form onsubmit="processImport(event)">
+                <div class="form-group">
+                    <textarea id="importText" rows="8"
+                        style="width: 100%; font-family: monospace; font-size: 11px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical;"
+                        placeholder="Вставьте текст..."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-ghost"
+                        onclick="document.getElementById('importModal').classList.remove('active')">Отмена</button>
+                    <button type="submit" class="btn-primary">Импортировать</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Импорты Firebase ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // --- Конфиг ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDAXwUIgcx-00chzMRXTayfikgmC8Jqnf4",
+            authDomain: "vpnadmin-72b36.firebaseapp.com",
+            projectId: "vpnadmin-72b36",
+            storageBucket: "vpnadmin-72b36.firebasestorage.app",
+            messagingSenderId: "418522987653",
+            appId: "1:418522987653:web:62b03f2217714e8e57bdec"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- Глобальные переменные ---
+        let dynamicModelMap = {};
+        let data = [];
+        let nameBase = JSON.parse(localStorage.getItem('vpn_names_base')) || {};
+        let customModelMap = JSON.parse(localStorage.getItem('vpn_models_map')) || {};
+
+        // --- ЖЕСТКИЕ ПРАВИЛА ---
+        customModelMap['2311drk48g'] = 'POCO X6 Pro';
+        customModelMap['23122pcd1g'] = 'POCO X6 5G';
+        customModelMap['2306epn60g'] = 'Xiaomi 13T';
+        customModelMap['bvl-n49'] = 'HONOR Magic6 Pro';
+        customModelMap['bvln49'] = 'HONOR Magic6 Pro';
+        customModelMap['2511fpc34g'] = 'POCO X8 Pro';
+        customModelMap['x8prousnal'] = 'POCO X8 Pro';
+        customModelMap['poco x8pro'] = 'POCO X8 Pro';
+        customModelMap['beelink_x86_64'] = 'Beelink Mini PC';
+        // ----------------------
+
+        let currentVpnId = null;
+        let editingDeviceId = null;
+
+        // --- База моделей ---
+        async function loadDeviceDatabase() {
+            try {
+                const response = await fetch('https://cdn.jsdelivr.net/gh/bsthen/device-models/devices.json');
+                if (!response.ok) throw new Error('Network response was not ok');
+                const dbData = await response.json();
+                for (const [code, info] of Object.entries(dbData)) {
+                    dynamicModelMap[code.toLowerCase()] = info.name || `${info.brand} ${info.name}`.trim();
+                }
+                console.log(`База моделей загружена. Записей: ${Object.keys(dynamicModelMap).length}`);
+            } catch (error) {
+                console.error('Не удалось загрузить базу моделей:', error);
+            }
+        }
+        loadDeviceDatabase();
+
+        // --- Авторизация ---
+        const authContainer = document.getElementById('auth-container');
+        const provider = new GoogleAuthProvider();
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                authContainer.innerHTML = `
+                    <div class="auth-btn" onclick="logout()">
+                        <img src="${user.photoURL || ''}" class="auth-avatar" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                        <span>${user.displayName || 'Выйти'}</span>
+                    </div>
+                `;
+                loadDataFromFirestore();
+            } else {
+                authContainer.innerHTML = `
+                    <button class="auth-btn" onclick="login()">Войти через Google</button>
+                `;
+                data = [];
+                render();
+            }
+        });
+
+        window.login = () => {
+            signInWithPopup(auth, provider).catch((error) => {
+                console.error("Ошибка входа:", error);
+                alert("Ошибка входа: " + error.message);
+            });
+        };
+
+        window.logout = () => {
+            signOut(auth).then(() => { console.log("Выход"); }).catch((error) => { console.error(error); });
+        };
+
+        // --- Синхронизация с Firestore ---
+        function loadDataFromFirestore() {
+            const q = query(collection(db, "vpns"), orderBy("createdAt", "asc"));
+
+            onSnapshot(q, (snapshot) => {
+                data = [];
+                snapshot.forEach((doc) => {
+                    const vpn = doc.data();
+                    vpn.id = doc.id;
+                    if (!vpn.devices) vpn.devices = [];
+                    data.push(vpn);
+                });
+                render();
+                console.log("Данные загружены из Firestore");
+                // --- АВТОПЕРЕНОС СТАРЫХ ДАННЫХ ---
+                const oldData = JSON.parse(localStorage.getItem('vpn_admin_data')) || [];
+                if (oldData.length > 0) {
+                    console.log("Найдены старые данные. Переношу в облако...");
+                    oldData.forEach(async (vpn) => {
+                        const vpnId = vpn.id || Date.now().toString() + Math.random();
+                        const cloudVpn = {
+                            name: vpn.name,
+                            paidUntil: vpn.paidUntil || new Date().toISOString(),
+                            devices: vpn.devices || [],
+                            createdAt: vpn.createdAt || Date.now()
+                        };
+                        await setDoc(doc(db, "vpns", vpnId), cloudVpn);
+                    });
+                    // Очищаем старое хранилище, чтобы не переносило каждый раз
+                    localStorage.removeItem('vpn_admin_data');
+                    console.log("Перенос завершён!");
+                    setTimeout(() => alert("Ваши старые VPN успешно перенесены в облако!"), 1000);
+                }
+                // ---------------------------------
+            }, (error) => {
+                console.error("Ошибка при чтении данных:", error);
+                alert("Не удалось загрузить данные. Проверьте правила Firestore.");
+            });
+        }
+
+        // Обертка для сохранения в Firebase
+        async function saveVpnToDb(vpnId, vpnData) {
+            if (!auth.currentUser) return;
+            const vpnRef = doc(db, "vpns", vpnId);
+            await setDoc(vpnRef, vpnData, { merge: true });
+        }
+
+        // --- Расшифровка названия ---
+        function translateModel(rawName) {
+            const name = rawName.trim();
+            const variants = [
+                name.toLowerCase(),
+                name.replace(/\s+/g, '').toLowerCase(),
+                name.replace(/^(POCO|Redmi|Xiaomi|Samsung|Honor|Huawei|Lenovo|Apple|Realme|Oppo|Vivo|OnePlus)\s+/i, '').toLowerCase(),
+                name.replace(/^(POCO|Redmi|Xiaomi|Samsung|Honor|Huawei|Lenovo|Apple|Realme|Oppo|Vivo|OnePlus)\s+/i, '').replace(/\s+/g, '').toLowerCase(),
+                name.replace(/[-\s]+/g, '').toLowerCase()
+            ];
+
+            for (const v of variants) {
+                if (customModelMap[v]) return customModelMap[v];
+            }
+
+            let foundName = null;
+            for (const v of variants) {
+                if (dynamicModelMap[v]) {
+                    foundName = dynamicModelMap[v];
+                    break;
+                }
+            }
+
+            if (foundName) {
+                const brandMatch = name.match(/^(POCO|Redmi|Xiaomi|Samsung|Honor|Huawei|Lenovo|Apple|Realme|Oppo|Vivo|OnePlus)/i);
+                if (brandMatch) {
+                    const brand = brandMatch[1];
+                    if (!foundName.toLowerCase().includes(brand.toLowerCase())) {
+                        return `${brand} ${foundName}`;
+                    }
+                }
+                return foundName;
+            }
+            return rawName;
+        }
+
+        // --- Вкладки ---
+        window.switchTab = function (tabName) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            if (tabName === 'users') renderUsers();
+        }
+
+        window.scrollToUser = function (ownerName) {
+            switchTab('users');
+            setTimeout(() => {
+                const container = document.getElementById('userList');
+                const cards = container.querySelectorAll('.user-card');
+                let targetCard = null;
+
+                cards.forEach(card => {
+                    const header = card.querySelector('.user-name');
+                    if (header && header.innerText.trim() === ownerName) {
+                        targetCard = card;
+                    }
+                });
+
+                if (targetCard) {
+                    targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    targetCard.classList.add('highlight-flash');
+                    setTimeout(() => targetCard.classList.remove('highlight-flash'), 1600);
+                }
+            }, 50);
+        }
+
+        // --- Расчёт времени ---
+        function getTimeLeft(isoDate) {
+            if (!isoDate) return { text: "Дата не указана", color: "var(--muted)" };
+            const now = new Date();
+            const target = new Date(isoDate);
+            const diffMs = target - now;
+
+            if (diffMs < 0) {
+                const daysOverdue = Math.floor(Math.abs(diffMs) / (1000 * 60 * 60 * 24));
+                return { text: `🔴 Просрочено на ${daysOverdue} дн.`, color: "var(--danger)" };
+            }
+
+            const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+
+            if (days === 0) {
+                if (hours === 0) return { text: "⚠️ Осталось меньше часа", color: "var(--warning)" };
+                return { text: `⚠️ Осталось: ${hours} ч.`, color: "var(--warning)" };
+            }
+
+            if (days <= 3) {
+                return { text: `⚠️ Осталось: ${days} дн.`, color: "var(--warning)" };
+            }
+
+            return { text: `Осталось: ${days} дн.`, color: "var(--muted)" };
+        }
+
+        // --- Рендер VPN ---
+        window.render = function () {
+            const container = document.getElementById('vpnList');
+            container.innerHTML = '';
+
+            if (data.length === 0) {
+                container.innerHTML = '<p class="empty-state" style="grid-column: 1/-1;">Нет созданных VPN. Нажмите "Добавить VPN".</p>';
+                return;
+            }
+
+            data.forEach(vpn => {
+                const isFull = vpn.devices.length >= 5;
+                const timeLeft = getTimeLeft(vpn.paidUntil);
+                const isWarning = timeLeft.color === "var(--warning)" || timeLeft.color === "var(--danger)";
+
+                const card = document.createElement('div');
+                card.className = `vpn-card ${isWarning ? 'warning' : ''}`;
+
+                const paidDate = vpn.paidUntil ? new Date(vpn.paidUntil).toLocaleDateString('ru-RU') : 'Не указана';
+
+                let devicesHtml = '';
+                if (vpn.devices.length === 0) {
+                    devicesHtml = '<p class="empty-state">Нет устройств</p>';
+                } else {
+                    devicesHtml = vpn.devices.map(dev => {
+                        let icon = '💻';
+                        if (dev.os === 'iOS' || dev.os === 'macOS') icon = '🍏';
+                        if (dev.os === 'Android') icon = '🤖';
+                        if (dev.os === 'Windows') icon = '🪟';
+
+                        const clientStr = dev.client ? ` <span style="font-weight: 400; color: var(--muted); font-size: 12px;">(${dev.client})</span>` : '';
+                        const ownerName = dev.owner ? dev.owner.trim() : 'Без имени';
+
+                        return `
+          <div class="device-item">
+            <div class="device-info" onclick="scrollToUser('${ownerName.replace(/'/g, "\\'")}')">
+              <div class="device-name">
+                <span>${icon}</span> ${dev.name}${clientStr}
+              </div>
+              ${dev.owner ? `<div class="device-owner">${dev.owner}</div>` : ''}
+            </div>
+            <div class="device-actions">
+              <button class="btn-ghost btn-sm" onclick="openEditModal('${vpn.id}', '${dev.id}')">Редактировать</button>
+              <button class="btn-danger btn-sm" onclick="deleteDevice('${vpn.id}', '${dev.id}')">✕</button>
+            </div>
+          </div>
+        `;
+                    }).join('');
+                }
+
+                card.innerHTML = `
+      <div class="card-header">
+        <div>
+          <div class="vpn-name">${vpn.name}</div>
+          <div class="vpn-info">
+            Оплачен до: ${paidDate}
+            <span style="color: ${timeLeft.color}; font-weight: 600; margin-left: 6px;">(${timeLeft.text})</span>
+          </div>
+        </div>
+        <div class="slots-badge ${isFull ? 'full' : ''}">${vpn.devices.length} / 5</div>
+      </div>
+      <div class="actions">
+        <button class="btn-primary" onclick="openAddDeviceModal('${vpn.id}')" ${isFull ? 'disabled' : ''}>+ Устройство</button>
+        <button class="btn-ghost" onclick="openImportModal('${vpn.id}')" ${isFull ? 'disabled' : ''}>Импорт</button>
+        <button class="btn-ghost" onclick="extendVpn('${vpn.id}')">+30 дней</button>
+        <button class="btn-ghost" onclick="setCustomDate('${vpn.id}')">📅 Дата</button>
+        <button class="btn-ghost" onclick="renameVpn('${vpn.id}')">✏️ Название</button>
+        <button class="btn-danger" onclick="deleteVpn('${vpn.id}')" style="margin-left: auto;">Удалить VPN</button>
+      </div>
+      <div class="device-list">
+        ${devicesHtml}
+      </div>
+    `;
+                container.appendChild(card);
+            });
+        }
+
+        // --- Рендер списка пользователей ---
+        window.renderUsers = function () {
+            const container = document.getElementById('userList');
+            container.innerHTML = '';
+
+            const users = {};
+            data.forEach(vpn => {
+                vpn.devices.forEach(dev => {
+                    const ownerName = dev.owner ? dev.owner.trim() : 'Без имени';
+                    if (!users[ownerName]) users[ownerName] = [];
+                    users[ownerName].push({
+                        deviceName: dev.name,
+                        client: dev.client,
+                        os: dev.os,
+                        vpnName: vpn.name,
+                        vpnId: vpn.id,
+                        deviceId: dev.id
+                    });
+                });
+            });
+
+            const userNames = Object.keys(users).sort((a, b) => {
+                if (a === 'Без имени') return 1;
+                if (b === 'Без имени') return -1;
+                return a.localeCompare(b, 'ru');
+            });
+
+            if (userNames.length === 0) {
+                container.innerHTML = '<p class="empty-state">Нет данных.</p>';
+                return;
+            }
+
+            userNames.forEach(userName => {
+                const userDevices = users[userName];
+                const card = document.createElement('div');
+                card.className = 'user-card';
+
+                let devicesHtml = userDevices.map(d => {
+                    let icon = '💻';
+                    if (d.os === 'iOS' || d.os === 'macOS') icon = '🍏';
+                    if (d.os === 'Android') icon = '🤖';
+                    if (d.os === 'Windows') icon = '🪟';
+
+                    const clientStr = d.client ? ` <span style="font-size: 11px; color: var(--muted);">(${d.client})</span>` : '';
+
+                    return `
+        <div class="user-device-row">
+          <div class="user-device-info">
+            <span>${icon} ${d.deviceName}${clientStr}</span>
+            <span class="user-vpn-tag">${d.vpnName}</span>
+          </div>
+          <div>
+            <button class="btn-ghost btn-sm" onclick="openEditModal('${d.vpnId}', '${d.deviceId}')">✏️</button>
+            <button class="btn-danger btn-sm" onclick="deleteDevice('${d.vpnId}', '${d.deviceId}')">✕</button>
+          </div>
+        </div>
+      `;
+                }).join('');
+
+                card.innerHTML = `
+      <div class="user-header">
+        <div class="user-name">${userName}</div>
+        <div class="user-device-count">${userDevices.length} устройств(а)</div>
+      </div>
+      ${devicesHtml}
+    `;
+                container.appendChild(card);
+            });
+        }
+
+        // --- Действия с VPN ---
+        window.addNewVPN = async function () {
+            if (!auth.currentUser) return alert("Сначала войдите в систему!");
+
+            const name = prompt("Введите название нового VPN (например, FurkVPN):");
+            if (!name) return;
+
+            const newVpn = {
+                name: name,
+                paidUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                devices: [],
+                createdAt: Date.now()
+            };
+
+            const newId = Date.now().toString();
+            await setDoc(doc(db, "vpns", newId), newVpn);
+        }
+
+        window.renameVpn = async function (vpnId) {
+            const vpn = data.find(v => v.id === vpnId);
+            if (!vpn) return;
+            const newName = prompt("Введите новое название для этого VPN:", vpn.name);
+            if (newName && newName.trim() !== '') {
+                await updateDoc(doc(db, "vpns", vpnId), { name: newName.trim() });
+            }
+        }
+
+        window.setCustomDate = async function (vpnId) {
+            const vpn = data.find(v => v.id === vpnId);
+            if (!vpn) return;
+
+            let currentDateStr = '';
+            if (vpn.paidUntil) {
+                const d = new Date(vpn.paidUntil);
+                currentDateStr = d.toISOString().split('T')[0];
+            }
+
+            const newDate = prompt("Введите дату оплаты в формате ГГГГ-ММ-ДД (например, 2026-12-31):", currentDateStr);
+            if (newDate) {
+                const parsedDate = new Date(newDate);
+                if (!isNaN(parsedDate.getTime())) {
+                    await updateDoc(doc(db, "vpns", vpnId), { paidUntil: parsedDate.toISOString() });
+                } else {
+                    alert("Неверный формат даты. Пожалуйста, используйте ГГГГ-ММ-ДД.");
+                }
+            }
+        }
+
+        window.deleteVpn = async function (vpnId) {
+            if (!confirm("Удалить этот VPN со всеми устройствами?")) return;
+            await deleteDoc(doc(db, "vpns", vpnId));
+        }
+
+        window.extendVpn = async function (vpnId) {
+            const vpn = data.find(v => v.id === vpnId);
+            if (!vpn) return;
+            let currentDate = vpn.paidUntil ? new Date(vpn.paidUntil) : new Date();
+            if (currentDate < new Date()) currentDate = new Date();
+            currentDate.setDate(currentDate.getDate() + 30);
+
+            await updateDoc(doc(db, "vpns", vpnId), { paidUntil: currentDate.toISOString() });
+        }
+
+        // --- Действия с устройствами ---
+        window.openAddDeviceModal = function (vpnId) {
+            currentVpnId = vpnId;
+            editingDeviceId = null;
+            document.getElementById('modalTitle').innerText = "Добавить устройство";
+            document.getElementById('deviceForm').reset();
+            document.getElementById('modal').classList.add('active');
+        }
+
+        window.openEditModal = function (vpnId, deviceId) {
+            currentVpnId = vpnId;
+            editingDeviceId = deviceId;
+            const vpn = data.find(v => v.id === vpnId);
+            const dev = vpn.devices.find(d => d.id === deviceId);
+            document.getElementById('modalTitle').innerText = "Редактировать устройство";
+            document.getElementById('deviceName').value = dev.name;
+            document.getElementById('deviceOwner').value = dev.owner || '';
+            document.getElementById('deviceClient').value = dev.client || '';
+            document.getElementById('deviceOS').value = dev.os || 'Другое';
+            document.getElementById('modal').classList.add('active');
+        }
+
+        window.closeModal = function () { document.getElementById('modal').classList.remove('active'); }
+
+        window.saveDevice = async function (event) {
+            event.preventDefault();
+            const name = document.getElementById('deviceName').value.trim();
+            const owner = document.getElementById('deviceOwner').value.trim();
+            const client = document.getElementById('deviceClient').value.trim();
+            const os = document.getElementById('deviceOS').value;
+            if (!name) return;
+
+            const vpn = data.find(v => v.id === currentVpnId);
+            if (!vpn) return;
+
+            let updatedDevices = [...vpn.devices];
+
+            if (editingDeviceId) {
+                const devIndex = updatedDevices.findIndex(d => d.id === editingDeviceId);
+                if (devIndex > -1) {
+                    const oldName = updatedDevices[devIndex].name;
+                    if (oldName !== name) customModelMap[oldName.toLowerCase()] = name;
+
+                    updatedDevices[devIndex] = {
+                        ...updatedDevices[devIndex],
+                        name: name,
+                        owner: owner,
+                        client: client,
+                        os: os
+                    };
+                }
+            } else {
+                updatedDevices.push({
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                    name: name,
+                    owner: owner,
+                    client: client,
+                    os: os
+                });
+            }
+
+            if (owner) nameBase[name.toLowerCase()] = owner;
+
+            // Сохраняем массив в Firebase
+            await updateDoc(doc(db, "vpns", currentVpnId), { devices: updatedDevices });
+
+            // Сохраняем локальные базы
+            localStorage.setItem('vpn_names_base', JSON.stringify(nameBase));
+            localStorage.setItem('vpn_models_map', JSON.stringify(customModelMap));
+
+            closeModal();
+        }
+
+        window.deleteDevice = async function (vpnId, deviceId) {
+            if (!confirm("Удалить устройство? Место освободится.")) return;
+            const vpn = data.find(v => v.id === vpnId);
+            if (!vpn) return;
+
+            const updatedDevices = vpn.devices.filter(d => d.id !== deviceId);
+            await updateDoc(doc(db, "vpns", vpnId), { devices: updatedDevices });
+        }
+
+        // --- Импорт ---
+        window.openImportModal = function (vpnId) {
+            currentVpnId = vpnId;
+            document.getElementById('importText').value = '';
+            document.getElementById('importModal').classList.add('active');
+        }
+
+        window.processImport = async function (event) {
+            event.preventDefault();
+            const text = document.getElementById('importText').value;
+            const vpn = data.find(v => v.id === currentVpnId);
+            if (!vpn) return;
+
+            let addedCount = 0, autoNamedCount = 0, translatedCount = 0;
+            let newDevices = [...vpn.devices];
+
+            // ФОРМАТ 2: Список в строку
+            if (text.includes('•') || text.match(/Android\s*-|Windows\s*-|iOS\s*-/i)) {
+                const lines = text.split('\n');
+                lines.forEach(line => {
+                    if (line.trim().startsWith('•') || line.trim().startsWith('-')) {
+                        const cleanLine = line.replace(/^[•\-]\s*/, '').trim();
+                        const parts = cleanLine.split(/\s*-\s*/);
+                        if (parts.length >= 2) {
+                            const osRaw = parts[0].toLowerCase();
+                            let modelName = parts.slice(1).join(' - ').trim();
+                            let os = 'Другое';
+                            if (osRaw.includes('android')) os = 'Android';
+                            else if (osRaw.includes('ios')) os = 'iOS';
+                            else if (osRaw.includes('windows')) os = 'Windows';
+                            else if (osRaw.includes('macos') || osRaw.includes('mac')) os = 'macOS';
+
+                            if (modelName && newDevices.length < 5) {
+                                const originalName = modelName;
+                                modelName = translateModel(modelName);
+                                if (originalName !== modelName) translatedCount++;
+                                const isDuplicate = newDevices.some(d => d.name.toLowerCase() === modelName.toLowerCase());
+                                if (!isDuplicate) {
+                                    const knownOwner = nameBase[modelName.toLowerCase()] || '';
+                                    if (knownOwner) autoNamedCount++;
+                                    newDevices.push({
+                                        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                                        name: modelName,
+                                        owner: knownOwner,
+                                        client: '',
+                                        os: os
+                                    });
+                                    addedCount++;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            // ФОРМАТ 1: Подробный
+            else {
+                const blocks = text.split(/\n\s*\n/).filter(b => b.trim() !== '');
+                blocks.forEach(block => {
+                    const lines = block.split('\n').map(l => l.trim()).filter(l => l !== '');
+                    if (lines.length === 0) return;
+
+                    const platformLine = lines.find(l => l.includes('Платформа:'));
+                    let os = 'Другое';
+                    if (platformLine) {
+                        if (platformLine.includes('Android')) os = 'Android';
+                        else if (platformLine.includes('iOS')) os = 'iOS';
+                        else if (platformLine.includes('Windows')) os = 'Windows';
+                        else if (platformLine.includes('macOS')) os = 'macOS';
+                    }
+
+                    const clientLine = lines.find(l => l.includes('Клиент:'));
+                    let client = '';
+                    if (clientLine) {
+                        const rawClient = clientLine.replace('Клиент:', '').trim();
+                        client = rawClient.split(' ')[0];
+                    }
+
+                    let name = '';
+                    const hwidIndex = lines.findIndex(l => l.includes('HWID:'));
+                    name = hwidIndex > 0 ? lines[hwidIndex - 1] : lines[0];
+                    name = name.replace(/^[•\-\*]\s*/, '').trim();
+
+                    if (name && newDevices.length < 5) {
+                        const originalName = name;
+                        name = translateModel(name);
+                        if (originalName !== name) translatedCount++;
+                        const isDuplicate = newDevices.some(d => d.name.toLowerCase() === name.toLowerCase());
+                        if (!isDuplicate) {
+                            const knownOwner = nameBase[name.toLowerCase()] || '';
+                            if (knownOwner) autoNamedCount++;
+                            newDevices.push({
+                                id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                                name: name,
+                                owner: knownOwner,
+                                client: client,
+                                os: os
+                            });
+                            addedCount++;
+                        }
+                    }
+                });
+            }
+
+            if (addedCount > 0) {
+                await updateDoc(doc(db, "vpns", currentVpnId), { devices: newDevices });
+
+                let msg = `✅ Добавлено устройств: ${addedCount}`;
+                if (translatedCount > 0) msg += `\nПереведено названий: ${translatedCount}`;
+                if (autoNamedCount > 0) msg += `\nИмён подставлено автоматически: ${autoNamedCount}`;
+                alert(msg);
+            } else {
+                alert(`Не удалось добавить устройства.\nВозможно, они уже есть или мест больше нет.`);
+            }
+
+            document.getElementById('importModal').classList.remove('active');
+        }
+
+        // --- Инициализация ---
+        setInterval(() => { render(); }, 60000);
+
+        // --- СВАЙПЫ ДЛЯ ТЕЛЕФОНА ---
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        const swipeContainer = document.querySelector('.container');
+
+        swipeContainer.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, { passive: true });
+
+        swipeContainer.addEventListener('touchend', (e) => {
+            const touchEndX = e.changedTouches[0].screenX;
+            const touchEndY = e.changedTouches[0].screenY;
+            const diffX = touchEndX - touchStartX;
+            const diffY = touchEndY - touchStartY;
+
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 60) {
+                const activeTab = document.querySelector('.tab-btn.active');
+                if (!activeTab) return;
+
+                if (diffX < 0 && activeTab.innerText.includes('VPN')) {
+                    switchTab('users');
+                } else if (diffX > 0 && activeTab.innerText.includes('Пользователи')) {
+                    switchTab('vpn');
+                }
+            }
+        }, { passive: true });
+    </script>
+</body>
+
+</html>

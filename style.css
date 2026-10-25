@@ -1,0 +1,468 @@
+:root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --danger: #dc2626;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --muted: #64748b;
+    --warning: #d97706;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 16px;
+    font-size: 14px;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+/* Липкая шапка (единый блок) */
+.sticky-top {
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+    padding-top: 16px;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+h1 {
+    font-size: 20px;
+}
+
+/* Вкладки */
+.tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+}
+
+.tab-btn {
+    background: transparent;
+    border: none;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -9px;
+}
+
+.tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Сетка для карточек VPN */
+#vpnList {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+    gap: 12px;
+}
+
+.vpn-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+}
+
+.vpn-card.warning {
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.vpn-name {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.vpn-info {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+.slots-badge {
+    background: #eff6ff;
+    color: var(--primary);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.slots-badge.full {
+    background: #fee2e2;
+    color: var(--danger);
+}
+
+/* Кнопки */
+button {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all .15s;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: #fff;
+}
+
+.btn-primary:not(:disabled):hover {
+    background: var(--primary-hover);
+}
+
+.btn-ghost {
+    background: #fff;
+    border-color: var(--border);
+    color: var(--text);
+}
+
+.btn-ghost:not(:disabled):hover {
+    background: #f8fafc;
+}
+
+.btn-danger {
+    background: #fef2f2;
+    color: var(--danger);
+    border-color: #fee2e2;
+}
+
+.btn-danger:not(:disabled):hover {
+    background: #fee2e2;
+}
+
+.btn-sm {
+    padding: 3px 8px;
+    font-size: 11px;
+}
+
+.actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+/* Список устройств */
+.device-list {
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+}
+
+.device-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.device-item:last-child {
+    border-bottom: none;
+}
+
+.device-info {
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+}
+
+/* Курсор-рука для клика */
+.device-name {
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.device-owner {
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 20px;
+}
+
+.device-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.empty-state {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 10px 0;
+    text-align: center;
+}
+
+/* Модальные окна */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    padding: 16px;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.modal {
+    background: #fff;
+    padding: 16px;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+.modal h3 {
+    margin-bottom: 12px;
+    font-size: 16px;
+}
+
+.form-group {
+    margin-bottom: 10px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+/* Список пользователей */
+.user-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    transition: background-color 0.4s;
+}
+
+.user-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.user-name {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.user-device-count {
+    font-size: 12px;
+    color: var(--muted);
+    background: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.user-device-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 13px;
+}
+
+.user-device-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.user-vpn-tag {
+    font-size: 11px;
+    color: var(--muted);
+    background: #f8fafc;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+
+/* Подсветка при переходе */
+@keyframes flashHighlight {
+    0% {
+        background-color: #fef08a;
+    }
+
+    100% {
+        background-color: var(--card);
+    }
+}
+
+.highlight-flash {
+    animation: flashHighlight 1.5s ease-out;
+}
+
+/* Кнопка авторизации */
+.auth-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    transition: all .15s;
+}
+
+.auth-btn:hover {
+    background: #f8fafc;
+}
+
+.auth-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+}
+
+/* МОБИЛЬНАЯ АДАПТАЦИЯ (для Android) */
+@media (max-width: 600px) {
+    body {
+        padding: 8px;
+        font-size: 13px;
+    }
+
+    h1 {
+        font-size: 18px;
+    }
+
+    /* Отключаем сетку в 2 колонки, делаем 1 колонку */
+    #vpnList {
+        grid-template-columns: 1fr;
+    }
+
+    /* Кнопки в карточке становятся чуть меньше и ровнее */
+    .actions {
+        gap: 4px;
+    }
+
+    .actions button {
+        flex: 1 1 auto;
+        font-size: 11px;
+        padding: 6px 4px;
+    }
+
+    /* Делаем так, чтобы строка с устройством не ломалась */
+    .device-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .device-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    /* Модальное окно на телефоне */
+    .modal {
+        max-width: 100%;
+        margin: 0 8px;
+    }
+
+    /* Вкладка пользователей */
+    .user-device-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .user-vpn-tag {
+        margin-left: 20px;
+    }
+}
